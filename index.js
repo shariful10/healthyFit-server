@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-// const jwt = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const morgan = require("morgan");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -18,6 +18,29 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(morgan("dev"));
+
+// verify jwt
+// validate jwt
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ error: true, message: "unAuthorized Access" });
+  }
+  const token = authorization.split(" ")[1];
+  // console.log(token);
+  // token verify
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+    if (error) {
+      return res
+        .status(401)
+        .send({ error: true, message: "unAuthorized Access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.USER_DB}:${process.env.USER_PASS}@cluster0.mzwsigq.mongodb.net/?retryWrites=true&w=majority`;
 
