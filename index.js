@@ -220,6 +220,14 @@ async function run() {
       res.json({ message: "Feedback sent" });
     });
 
+    // save a room in database
+    app.post("/class", async (req, res) => {
+      const classesData = req.body;
+      // console.log(room);
+      const result = await classesCollection.insertOne(classesData);
+      res.send(result);
+    });
+
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
