@@ -30,6 +30,17 @@ const client = new MongoClient(uri, {
   },
 });
 
+// generate jwt token
+app.post("/jwt", (req, res) => {
+  const email = req.body;
+  // console.log(email);
+  const token = jwt.sign(email, process.env.ACCESS_TOKEN_SECRET, {
+    expiresIn: "7d",
+  });
+  // console.log(token);
+  res.send({ token });
+});
+
 async function run() {
   try {
     const usersCollection = client.db("healthyFit").collection("users");
