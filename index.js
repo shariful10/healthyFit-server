@@ -53,21 +53,103 @@ const client = new MongoClient(uri, {
   },
 });
 
-// generate jwt token
-app.post("/jwt", (req, res) => {
-  const email = req.body;
-  // console.log(email);
-  const token = jwt.sign(email, process.env.ACCESS_TOKEN_SECRET, {
-    expiresIn: "7d",
-  });
-  // console.log(token);
-  res.send({ token });
-});
-
 async function run() {
   try {
     const usersCollection = client.db("healthyFit").collection("users");
-    // sav user email and role in db
+    const classesCollection = client.db("healthyFit").collection("class");
+
+    // generate jwt token
+    app.post("/jwt", (req, res) => {
+      const email = req.body;
+      // console.log(email);
+      const token = jwt.sign(email, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "7d",
+      });
+      // console.log(token);
+      res.send({ token });
+    });
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "admin") {
+        return res
+          .status(403)
+          .send({ error: true, message: "forbidden message" });
+      }
+      next();
+    };
+    const verifyInstructor = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "instructor") {
+        return res
+          .status(403)
+          .send({ error: true, message: "forbidden message" });
+      }
+      next();
+    };
+    // user related apis
+    app.get(
+      "/users",
+      verifyJWT,
+      verifyAdmin,
+      // verifyInstructor,
+      async (req, res) => {
+        const result = await usersCollection.find().toArray();
+        res.send(result);
+      }
+    );
+    // update user admin
+
+    app.get("/users/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      if (req.decoded.email !== email) {
+        res.send({ admin: false });
+      }
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const result = { admin: user?.role === "admin" };
+      res.send(result);
+    });
+
+    app.patch("/users/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await usersCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    // Make Instructor
+    app.get("/users/instructor/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      if (req.decoded.email !== email) {
+        res.send({ instructor: false });
+      }
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const result = { instructor: user?.role === "instructor" };
+      res.send(result);
+    });
+
+    app.patch("/users/instructor/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "instructor",
+        },
+      };
+      const result = await usersCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
     app.put("/users/:email", async (req, res) => {
       const email = req.params.email;
       const user = req.body;
@@ -84,6 +166,60 @@ async function run() {
       // console.log(result);
       res.send(result);
     });
+
+    // Manage Classes route
+    app.get("/admin/classes", verifyJWT, async (req, res) => {
+      try {
+        const classes = await classesCollection.find().toArray();
+        res.send(classes);
+      } catch (err) {
+        console.error("Error retrieving classes from the database", err);
+        res.status(500).json({ error: "An error occurred" });
+      }
+    });
+
+    // Approve Class
+    app.put("/admin/classes/:id/approve", verifyJWT, async (req, res) => {
+      const classId = req.params.id;
+      try {
+        const result = await classesCollection.updateOne(
+          { _id: ObjectId(classId) },
+          { $set: { status: "approved" } }
+        );
+        res.send(result);
+        res.json({ message: "Class approved" });
+      } catch (err) {
+        console.error("Error updating class status in the database", err);
+        res.status(500).json({ error: "An error occurred" });
+      }
+    });
+
+    // Deny Class
+    app.put("/admin/classes/:id/deny", verifyJWT, async (req, res) => {
+      const classId = req.params.id;
+      try {
+        const result = await classesCollection.updateOne(
+          { _id: ObjectId(classId) },
+          { $set: { status: "denied" } }
+        );
+        res.send(result);
+        res.json({ message: "Class denied" });
+      } catch (err) {
+        console.error("Error updating class status in the database", err);
+        res.status(500).json({ error: "An error occurred" });
+      }
+    });
+
+    // Send Feedback
+    app.post("/admin/classes/:id/feedback", verifyJWT, async (req, res) => {
+      const classId = req.params.id;
+      const feedback = req.body.feedback;
+
+      // Code for sending feedback to the instructor
+
+      res.json({ message: "Feedback sent" });
+    });
+
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
