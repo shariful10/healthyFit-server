@@ -57,7 +57,9 @@ async function run() {
   try {
     const usersCollection = client.db("healthyFit").collection("users");
     const classesCollection = client.db("healthyFit").collection("class");
-
+    const featuredClassCollection = client
+      .db("healthyFit")
+      .collection("featuredClass");
     // generate jwt token
     app.post("/jwt", (req, res) => {
       const email = req.body;
@@ -94,8 +96,9 @@ async function run() {
     app.get(
       "/users",
       verifyJWT,
-      verifyAdmin,
       // verifyInstructor,
+      verifyAdmin,
+
       async (req, res) => {
         const result = await usersCollection.find().toArray();
         res.send(result);
@@ -167,8 +170,20 @@ async function run() {
       res.send(result);
     });
 
+    //  get all class
+    app.get("/all-class", async (req, res) => {
+      const result = await classesCollection.find().toArray();
+      res.send(result);
+    });
+    // save a room in database
+    app.post("/class", async (req, res) => {
+      const classesData = req.body;
+      // console.log(room);
+      const result = await classesCollection.insertOne(classesData);
+      res.send(result);
+    });
     // Manage Classes route
-    app.get("/admin/classes", verifyJWT, async (req, res) => {
+    app.get("/users/classes", async (req, res) => {
       try {
         const classes = await classesCollection.find().toArray();
         res.send(classes);
@@ -179,52 +194,69 @@ async function run() {
     });
 
     // Approve Class
-    app.put("/admin/classes/:id/approve", verifyJWT, async (req, res) => {
+    app.put("/classes/:id/approve", async (req, res) => {
       const classId = req.params.id;
+
+      // Update the class status to approved
+      const result = await classesCollection.updateOne(
+        { _id: new ObjectId(classId) },
+        { $set: { status: "approved" } }
+      );
+
+      res.send(result);
+    });
+
+    app.put("/classes/:id/deny", async (req, res) => {
+      const classId = req.params.id;
+
+      // Update the class status to denied
+      const result = await classesCollection.updateOne(
+        { _id: new ObjectId(classId) },
+        { $set: { status: "denied" } }
+      );
+      res.send(result);
+    });
+
+    // Add feedback to a class
+    app.post("/classes/:classId/feedback", async (req, res) => {
+      const classId = req.params.id;
+      const { feedback } = req.body;
+
+      // Update the class with the feedback
+      const result = await classesCollection.updateOne(
+        { _id: new ObjectId(classId) },
+        {
+          $set: { feedback: feedback },
+        }
+      );
+
+      res.send(result);
+    });
+
+    app.get("/instructors", async (req, res) => {
       try {
-        const result = await classesCollection.updateOne(
-          { _id: ObjectId(classId) },
-          { $set: { status: "approved" } }
-        );
-        res.send(result);
-        res.json({ message: "Class approved" });
-      } catch (err) {
-        console.error("Error updating class status in the database", err);
-        res.status(500).json({ error: "An error occurred" });
+        // Retrieve the instructor data
+        const instructors = await classesCollection
+          .find()
+          .project({ instructor: { name: 1, image: 1, email: 1 } })
+          .toArray();
+
+        // Send the instructor data as a response
+        res.send(instructors);
+      } catch (error) {
+        console.error("Error retrieving instructors:", error);
+        res.status(500).json({ error: "Failed to retrieve instructors" });
       }
     });
 
-    // Deny Class
-    app.put("/admin/classes/:id/deny", verifyJWT, async (req, res) => {
-      const classId = req.params.id;
-      try {
-        const result = await classesCollection.updateOne(
-          { _id: ObjectId(classId) },
-          { $set: { status: "denied" } }
-        );
-        res.send(result);
-        res.json({ message: "Class denied" });
-      } catch (err) {
-        console.error("Error updating class status in the database", err);
-        res.status(500).json({ error: "An error occurred" });
-      }
+    // get  mu class for instructors
+    app.get("/my-class", async (req, res) => {
+      const result = await classesCollection.find().toArray();
+      res.send(result);
     });
 
-    // Send Feedback
-    app.post("/admin/classes/:id/feedback", verifyJWT, async (req, res) => {
-      const classId = req.params.id;
-      const feedback = req.body.feedback;
-
-      // Code for sending feedback to the instructor
-
-      res.json({ message: "Feedback sent" });
-    });
-
-    // save a room in database
-    app.post("/class", async (req, res) => {
-      const classesData = req.body;
-      // console.log(room);
-      const result = await classesCollection.insertOne(classesData);
+    app.get("/featured-class", async (req, res) => {
+      const result = await featuredClassCollection.find().toArray();
       res.send(result);
     });
 
