@@ -121,7 +121,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users/admin/:id", async (req, res) => {
+    app.patch("/users/admin/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
@@ -145,19 +145,24 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users/instructor/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: "instructor",
-        },
-      };
-      const result = await usersCollection.updateOne(filter, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/instructor/:id",
+      verifyJWT,
+      verifyInstructor,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: "instructor",
+          },
+        };
+        const result = await usersCollection.updateOne(filter, updatedDoc);
+        res.send(result);
+      }
+    );
 
-    app.put("/users/:email", async (req, res) => {
+    app.put("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       const user = req.body;
       const filter = { email: email };
@@ -223,15 +228,16 @@ async function run() {
     });
 
     // Add feedback to a class
-    app.post("/classes/:classId/feedback", async (req, res) => {
-      const classId = req.params.id;
+    app.patch("/classes/:classId/feedback", async (req, res) => {
+      const classId = req.params.classId;
+
       const { feedback } = req.body;
       console.log(feedback);
       // Update the class with the feedback
       const result = await classesCollection.updateOne(
         { _id: new ObjectId(classId) },
         {
-          $set: { ...feedback },
+          $set: { feedback: feedback },
         }
       );
 
@@ -282,7 +288,7 @@ async function run() {
     });
 
     // Update A class
-    app.put("/class-update/:id", verifyJWT, async (req, res) => {
+    app.put("/classUpdate/:id", verifyJWT, async (req, res) => {
       const classUpdate = req.body;
       console.log(classUpdate);
 
