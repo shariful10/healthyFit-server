@@ -1,11 +1,13 @@
 const express = require("express");
 const app = express();
 const jwt = require("jsonwebtoken");
+
 const cors = require("cors");
 const morgan = require("morgan");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 // const nodemailer = require("nodemailer");
+const stripe = require("stripe")(process.env.PAYMENT_SECRET);
 const port = process.env.PORT || 5000;
 
 // // middleware;
@@ -61,6 +63,8 @@ async function run() {
       .db("healthyFit")
       .collection("featuredClass");
     const bookedCourseCollection = client.db("healthyFit").collection("course");
+    const paymentsCollection = client.db("healthyFit").collection("payment");
+
     // generate jwt token
     app.post("/jwt", (req, res) => {
       const email = req.body;
@@ -99,16 +103,10 @@ async function run() {
       next();
     };
     // user related apis
-    app.get(
-      "/users",
-      verifyJWT,
-      verifyAdmin,
-      verifyInstructor,
-      async (req, res) => {
-        const result = await usersCollection.find().toArray();
-        res.send(result);
-      }
-    );
+    app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
     // update user admin
 
     app.get("/users/admin/:email", verifyJWT, async (req, res) => {
@@ -148,17 +146,22 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users/instructor/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: "instructor",
-        },
-      };
-      const result = await usersCollection.updateOne(filter, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/instructor/:id",
+      verifyJWT,
+      verifyInstructor,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: "instructor",
+          },
+        };
+        const result = await usersCollection.updateOne(filter, updatedDoc);
+        res.send(result);
+      }
+    );
 
     app.put("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
@@ -179,6 +182,12 @@ async function run() {
 
     app.get("/all-class", async (req, res) => {
       const result = await classesCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/update-class/:id", async (req, res) => {
+      const result = await classesCollection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
       res.send(result);
     });
 
@@ -286,55 +295,80 @@ async function run() {
     });
 
     // API endpoint to get selected classes for a student
-    app.get("/student/classes", async (req, res) => {
-      try {
-        const result = await bookedCourseCollection.find().toArray();
-        res.send(result);
-      } catch (err) {
-        console.error("Error retrieving classes from the database", err);
-        res.status(500).json({ error: "An error occurred" });
+    app.get("/student/classes", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (!email) {
+        res.send([]);
       }
+      const decodedEmail = req.decoded.email;
+      // console.log({ decodedEmail });
+      if (email !== decodedEmail) {
+        return res
+          .status(403)
+          .send({ error: true, message: "forbidden access" });
+      }
+      const query = { email: email };
+      const result = await bookedCourseCollection.find(query).toArray();
+      res.send(result);
     });
 
     // API endpoint to remove a selected class
-    // app.delete("/student/classes/:studentId/:classId", (req, res) => {
-    //   const studentId = req.params.studentId;
-    //   const classId = req.params.classId;
+    app.delete("/student/classes/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(req.params);
+      // Delete the selected class for the student
+      const result = await bookedCourseCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      console.log(result);
+      res.send(result);
+    });
 
-    //   MongoClient.connect(
-    //     url,
-    //     { useNewUrlParser: true, useUnifiedTopology: true },
-    //     (err, client) => {
-    //       if (err) {
-    //         console.error("Error connecting to MongoDB:", err);
-    //         res.status(500).json({ error: "Error connecting to MongoDB" });
-    //         return;
-    //       }
+    //payment stipe impliment here
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const { price } = req.body;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
 
-    //       const db = client.db(dbName);
-    //       const collection = db.collection("selectedClasses");
+    //payment api to save database ,remove classes ,enrolled added
+    app.post("/payments", async (req, res) => {
+      const paymentInfo = req.body;
+      const insertResult = await paymentsCollection.insertOne(paymentInfo);
+      console.log(paymentInfo);
+      const query = {
+        _id: new ObjectId(paymentInfo.classId),
+      };
+      const removeResult = await classesCollection.deleteOne(query);
+      // const enrolledResult = await enrolledCollection.insertOne(paymentInfo);
+      res.send({ insertResult, removeResult });
+    });
 
-    //       // Delete the selected class for the student
-    //       collection.deleteOne(
-    //         { studentId: studentId, classId: classId },
-    //         (err, result) => {
-    //           if (err) {
-    //             console.error(
-    //               "Error deleting selected class from MongoDB:",
-    //               err
-    //             );
-    //             res.status(500).json({
-    //               error: "Error deleting selected class from MongoDB",
-    //             });
-    //             return;
-    //           }
-
-    //           res.json({ deletedCount: result.deletedCount });
-    //         }
-    //       );
-    //     }
-    //   );
-    // });
+    // Retrieve payment history for a student
+    app.get("/student/payment-history", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (!email) {
+        res.send([]);
+        return;
+      }
+      const decodedEmail = req.decoded.email;
+      if (email !== decodedEmail) {
+        return res
+          .status(403)
+          .send({ error: true, message: "Forbidden access" });
+      }
+      const query = { email: email };
+      const result = await paymentHistoryCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(result);
+    });
 
     app.get("/featured-class", async (req, res) => {
       const result = await featuredClassCollection.find().toArray();
