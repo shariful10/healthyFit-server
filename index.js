@@ -57,10 +57,10 @@ async function run() {
   try {
     const usersCollection = client.db("healthyFit").collection("users");
     const classesCollection = client.db("healthyFit").collection("class");
-    const bookedCourseCollection = client.db("healthyFit").collection("course");
     const featuredClassCollection = client
       .db("healthyFit")
       .collection("featuredClass");
+    const bookedCourseCollection = client.db("healthyFit").collection("course");
     // generate jwt token
     app.post("/jwt", (req, res) => {
       const email = req.body;
@@ -76,6 +76,7 @@ async function run() {
       const email = req.decoded.email;
       const query = { email: email };
       const user = await usersCollection.findOne(query);
+      console.log(user);
       if (user?.role !== "admin") {
         return res
           .status(403)
@@ -88,6 +89,8 @@ async function run() {
       const email = req.decoded.email;
       const query = { email: email };
       const user = await usersCollection.findOne(query);
+      console.log(user);
+      console.log(user);
       if (user?.role !== "instructor") {
         return res
           .status(403)
@@ -100,7 +103,7 @@ async function run() {
       "/users",
       verifyJWT,
       verifyAdmin,
-      // verifyInstructor,
+      verifyInstructor,
       async (req, res) => {
         const result = await usersCollection.find().toArray();
         res.send(result);
@@ -111,7 +114,7 @@ async function run() {
     app.get("/users/admin/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       if (req.decoded.email !== email) {
-        res.send({ admin: false });
+        res.send({ admin: false } || { instructor: false });
       }
       const query = { email: email };
       const user = await usersCollection.findOne(query);
@@ -121,7 +124,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users/admin/:id", verifyJWT, async (req, res) => {
+    app.patch("/users/admin/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
@@ -145,22 +148,17 @@ async function run() {
       res.send(result);
     });
 
-    app.patch(
-      "/users/instructor/:id",
-      verifyJWT,
-      verifyInstructor,
-      async (req, res) => {
-        const id = req.params.id;
-        const filter = { _id: new ObjectId(id) };
-        const updatedDoc = {
-          $set: {
-            role: "instructor",
-          },
-        };
-        const result = await usersCollection.updateOne(filter, updatedDoc);
-        res.send(result);
-      }
-    );
+    app.patch("/users/instructor/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "instructor",
+        },
+      };
+      const result = await usersCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
 
     app.put("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
@@ -179,13 +177,12 @@ async function run() {
       res.send(result);
     });
 
-    //  get all class
     app.get("/all-class", async (req, res) => {
       const result = await classesCollection.find().toArray();
       res.send(result);
     });
 
-    // save a room in database
+    // save a Class in database
     app.post("/class", async (req, res) => {
       const classesData = req.body;
       // console.log(room);
@@ -230,7 +227,6 @@ async function run() {
     // Add feedback to a class
     app.patch("/classes/:classId/feedback", async (req, res) => {
       const classId = req.params.classId;
-
       const { feedback } = req.body;
       console.log(feedback);
       // Update the class with the feedback
@@ -260,27 +256,12 @@ async function run() {
       }
     });
 
-    // Select a course
-    app.post("/classes/select", verifyJWT, async (req, res) => {
-      try {
-        const classId = req.body.classId;
-        const selectedClass = await bookedCourseCollection.findById(classId);
-
-        if (!selectedClass) {
-          return res.status(404).json({ error: "Class not found" });
-        }
-
-        if (selectedClass.availableSeats === 0) {
-          return res.status(400).json({ error: "No available seats" });
-        }
-
-        res.send({ message: "Course selected successfully" });
-      } catch (error) {
-        console.error("Error selecting course:", error);
-        res.status(500).json({ error: "Server error" });
-      }
+    app.post("/select-class", async (req, res) => {
+      const classes = req.body;
+      console.log(classes);
+      const result = await bookedCourseCollection.insertOne(classes);
+      res.send(result);
     });
-
     // get  mu class for instructors
     app.get("/my-class", async (req, res) => {
       const result = await classesCollection.find().toArray();
@@ -288,9 +269,8 @@ async function run() {
     });
 
     // Update A class
-    app.put("/classUpdate/:id", verifyJWT, async (req, res) => {
+    app.put("/classUpdate/:id", async (req, res) => {
       const classUpdate = req.body;
-      console.log(classUpdate);
 
       const filter = { _id: new ObjectId(req.params.id) };
       const options = { upsert: true };
@@ -304,6 +284,57 @@ async function run() {
       );
       res.send(result);
     });
+
+    // API endpoint to get selected classes for a student
+    app.get("/student/classes", async (req, res) => {
+      try {
+        const result = await bookedCourseCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        console.error("Error retrieving classes from the database", err);
+        res.status(500).json({ error: "An error occurred" });
+      }
+    });
+
+    // API endpoint to remove a selected class
+    // app.delete("/student/classes/:studentId/:classId", (req, res) => {
+    //   const studentId = req.params.studentId;
+    //   const classId = req.params.classId;
+
+    //   MongoClient.connect(
+    //     url,
+    //     { useNewUrlParser: true, useUnifiedTopology: true },
+    //     (err, client) => {
+    //       if (err) {
+    //         console.error("Error connecting to MongoDB:", err);
+    //         res.status(500).json({ error: "Error connecting to MongoDB" });
+    //         return;
+    //       }
+
+    //       const db = client.db(dbName);
+    //       const collection = db.collection("selectedClasses");
+
+    //       // Delete the selected class for the student
+    //       collection.deleteOne(
+    //         { studentId: studentId, classId: classId },
+    //         (err, result) => {
+    //           if (err) {
+    //             console.error(
+    //               "Error deleting selected class from MongoDB:",
+    //               err
+    //             );
+    //             res.status(500).json({
+    //               error: "Error deleting selected class from MongoDB",
+    //             });
+    //             return;
+    //           }
+
+    //           res.json({ deletedCount: result.deletedCount });
+    //         }
+    //       );
+    //     }
+    //   );
+    // });
 
     app.get("/featured-class", async (req, res) => {
       const result = await featuredClassCollection.find().toArray();
