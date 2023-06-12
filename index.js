@@ -163,23 +163,6 @@ async function run() {
       res.send(result);
     });
 
-    // app.put("/users/:email", verifyJWT, async (req, res) => {
-    //   const email = req.params.email;
-    //   const user = req.body;
-    //   const filter = { email: email };
-    //   const options = { upsert: true };
-    //   const updatedDco = {
-    //     $set: user,
-    //   };
-    //   const result = await usersCollection.updateOne(
-    //     filter,
-    //     updatedDco,
-    //     options
-    //   );
-    //   // console.log(result);
-    //   res.send(result);
-    // });
-
     app.post("/users", async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
@@ -441,16 +424,24 @@ async function run() {
     // Route to get popular instructors based on the number of students in their class
     app.get("/popular-instructors", async (req, res) => {
       try {
-        const popularInstructors = await classesCollection
+        const popularInstructors = await enrolledCollection
           .aggregate([
             {
               $group: {
-                _id: "$instructorEmail",
-                totalStudents: { $sum: "$totalEnrolledStudents" },
+                _id: "$selectedClass",
+                instructorName: { $first: "$selectedClass.instructor.name" },
+                instructorImage: { $first: "$selectedClass.instructor.image" },
+                totalEnrolledStudents: {
+                  $sum: "$totalEnrolledStudents",
+                },
               },
             },
-            { $sort: { totalStudents: -1 } },
-            { $limit: 6 },
+            {
+              $sort: { totalEnrolledStudents: -1 },
+            },
+            {
+              $limit: 6,
+            },
           ])
           .toArray();
 
