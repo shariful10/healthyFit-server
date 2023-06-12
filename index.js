@@ -2,9 +2,9 @@ const express = require("express");
 const app = express();
 const jwt = require("jsonwebtoken");
 
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const morgan = require("morgan");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 // const nodemailer = require("nodemailer");
 const stripe = require("stripe")(process.env.PAYMENT_SECRET);
@@ -59,11 +59,15 @@ async function run() {
   try {
     const usersCollection = client.db("healthyFit").collection("users");
     const classesCollection = client.db("healthyFit").collection("class");
+
+    const bookedCourseCollection = client.db("healthyFit").collection("course");
+    const paymentsCollection = client.db("healthyFit").collection("payment");
+    const enrolledCollection = client
+      .db("healthyFit")
+      .collection("enrolledClass");
     const featuredClassCollection = client
       .db("healthyFit")
       .collection("featuredClass");
-    const bookedCourseCollection = client.db("healthyFit").collection("course");
-    const paymentsCollection = client.db("healthyFit").collection("payment");
 
     // generate jwt token
     app.post("/jwt", (req, res) => {
@@ -89,19 +93,19 @@ async function run() {
       next();
     };
 
-    const verifyInstructor = async (req, res, next) => {
-      const email = req.decoded.email;
-      const query = { email: email };
-      const user = await usersCollection.findOne(query);
-      console.log(user);
-      console.log(user);
-      if (user?.role !== "instructor") {
-        return res
-          .status(403)
-          .send({ error: true, message: "forbidden message" });
-      }
-      next();
-    };
+    // const verifyInstructor = async (req, res, next) => {
+    //   const email = req.decoded.email;
+    //   const query = { email: email };
+    //   const user = await usersCollection.findOne(query);
+    //   console.log(user);
+    //   console.log(user);
+    //   if (user?.role !== "instructor") {
+    //     return res
+    //       .status(403)
+    //       .send({ error: true, message: "forbidden message" });
+    //   }
+    //   next();
+    // };
     // user related apis
     app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
@@ -111,6 +115,7 @@ async function run() {
 
     app.get("/users/admin/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
+      console.log(req.params);
       if (req.decoded.email !== email) {
         res.send({ admin: false } || { instructor: false });
       }
@@ -146,40 +151,49 @@ async function run() {
       res.send(result);
     });
 
-    app.patch(
-      "/users/instructor/:id",
-      verifyJWT,
-      verifyInstructor,
-      async (req, res) => {
-        const id = req.params.id;
-        const filter = { _id: new ObjectId(id) };
-        const updatedDoc = {
-          $set: {
-            role: "instructor",
-          },
-        };
-        const result = await usersCollection.updateOne(filter, updatedDoc);
-        res.send(result);
-      }
-    );
-
-    app.put("/users/:email", verifyJWT, async (req, res) => {
-      const email = req.params.email;
-      const user = req.body;
-      const filter = { email: email };
-      const options = { upsert: true };
-      const updatedDco = {
-        $set: user,
+    app.patch("/users/instructor/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "instructor",
+        },
       };
-      const result = await usersCollection.updateOne(
-        filter,
-        updatedDco,
-        options
-      );
-      // console.log(result);
+      const result = await usersCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
 
+    // app.put("/users/:email", verifyJWT, async (req, res) => {
+    //   const email = req.params.email;
+    //   const user = req.body;
+    //   const filter = { email: email };
+    //   const options = { upsert: true };
+    //   const updatedDco = {
+    //     $set: user,
+    //   };
+    //   const result = await usersCollection.updateOne(
+    //     filter,
+    //     updatedDco,
+    //     options
+    //   );
+    //   // console.log(result);
+    //   res.send(result);
+    // });
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+      const existingUser = await usersCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "User already exists" });
+      }
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+    app.get("/featured-class", async (req, res) => {
+      const result = await featuredClassCollection.find().toArray();
+      res.send(result);
+    });
     app.get("/all-class", async (req, res) => {
       const result = await classesCollection.find().toArray();
       res.send(result);
@@ -267,7 +281,7 @@ async function run() {
 
     app.post("/select-class", async (req, res) => {
       const classes = req.body;
-      console.log(classes);
+      // console.log(classes);
       const result = await bookedCourseCollection.insertOne(classes);
       res.send(result);
     });
@@ -315,7 +329,6 @@ async function run() {
     // API endpoint to remove a selected class
     app.delete("/student/classes/:id", async (req, res) => {
       const id = req.params.id;
-      console.log(req.params);
       // Delete the selected class for the student
       const result = await bookedCourseCollection.deleteOne({
         _id: new ObjectId(id),
@@ -340,40 +353,81 @@ async function run() {
     app.post("/payments", async (req, res) => {
       const paymentInfo = req.body;
       const insertResult = await paymentsCollection.insertOne(paymentInfo);
-      console.log(paymentInfo);
+
       const query = {
         _id: new ObjectId(paymentInfo.classId),
+        // _id: { $in: paymentInfo.map((id) => new ObjectId(id)) },
       };
       const removeResult = await classesCollection.deleteOne(query);
       // const enrolledResult = await enrolledCollection.insertOne(paymentInfo);
       res.send({ insertResult, removeResult });
     });
 
-    // Retrieve payment history for a student
-    app.get("/student/payment-history", verifyJWT, async (req, res) => {
-      const email = req.query.email;
-      if (!email) {
-        res.send([]);
-        return;
+    // Fetch enrolled classes for a student
+    app.get("/enrolled-classes", async (req, res) => {
+      try {
+        const enrolledClasses = await paymentsCollection
+          .find({ email: req.query.email })
+          .toArray();
+
+        res.send(enrolledClasses);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to retrieve enrolled classes" });
       }
-      const decodedEmail = req.decoded.email;
-      if (email !== decodedEmail) {
-        return res
-          .status(403)
-          .send({ error: true, message: "Forbidden access" });
-      }
-      const query = { email: email };
-      const result = await paymentHistoryCollection
-        .find(query)
-        .sort({ createdAt: -1 })
-        .toArray();
-      res.send(result);
     });
 
-    app.get("/featured-class", async (req, res) => {
-      const result = await featuredClassCollection.find().toArray();
-      res.send(result);
-    });
+    // // Get popular classes based on the number of students
+    // app.get("/popular-classes", async (req, res) => {
+    //   try {
+    //     const popularClasses = await paymentsCollection
+    //       .aggregate([
+    //         { $group: { _id: "$classId", count: { $sum: 1 } } },
+    //         { $sort: { count: -1 } },
+    //         { $limit: 6 },
+    //       ])
+    //       .toArray();
+
+    //     const classIds = popularClasses.map((classItem) => classItem._id);
+
+    //     const classes = await bookedCourseCollection
+    //       .find({ _id: { $in: classIds } })
+    //       .toArray();
+
+    //     res.send(classes);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ error: "Failed to retrieve popular classes" });
+    //   }
+    // });
+
+    // // Get popular instructors based on the number of students
+    // app.get("/popular-instructors", async (req, res) => {
+    //   try {
+    //     const popularInstructors = await paymentsCollection
+    //       .aggregate([
+    //         { $group: { _id: "$transactionId", count: { $sum: 1 } } },
+    //         { $sort: { count: -1 } },
+    //         { $limit: 6 },
+    //       ])
+    //       .toArray();
+
+    //     const instructorIds = popularInstructors.map(
+    //       (instructorItem) => instructorItem._id
+    //     );
+
+    //     const instructors = await bookedCourseCollection
+    //       .find({ _id: new ObjectId(instructorIds) })
+    //       .toArray();
+
+    //     res.send(instructors);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res
+    //       .status(500)
+    //       .send({ error: "Failed to retrieve popular instructors" });
+    //   }
+    // });
 
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
