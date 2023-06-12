@@ -115,7 +115,7 @@ async function run() {
 
     app.get("/users/admin/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
-      console.log(req.params);
+
       if (req.decoded.email !== email) {
         res.send({ admin: false } || { instructor: false });
       }
@@ -208,7 +208,7 @@ async function run() {
     // save a Class in database
     app.post("/class", async (req, res) => {
       const classesData = req.body;
-      // console.log(room);
+
       const result = await classesCollection.insertOne(classesData);
       res.send(result);
     });
@@ -251,7 +251,7 @@ async function run() {
     app.patch("/classes/:classId/feedback", async (req, res) => {
       const classId = req.params.classId;
       const { feedback } = req.body;
-      console.log(feedback);
+
       // Update the class with the feedback
       const result = await classesCollection.updateOne(
         { _id: new ObjectId(classId) },
@@ -281,7 +281,6 @@ async function run() {
 
     app.post("/select-class", async (req, res) => {
       const classes = req.body;
-      // console.log(classes);
       const result = await bookedCourseCollection.insertOne(classes);
       res.send(result);
     });
@@ -358,9 +357,9 @@ async function run() {
         _id: new ObjectId(paymentInfo.classId),
         // _id: { $in: paymentInfo.map((id) => new ObjectId(id)) },
       };
-      const removeResult = await classesCollection.deleteOne(query);
-      // const enrolledResult = await enrolledCollection.insertOne(paymentInfo);
-      res.send({ insertResult, removeResult });
+      // const removeResult = await classesCollection.deleteOne(query);
+      // // const enrolledResult = await enrolledCollection.insertOne(paymentInfo);
+      res.send({ insertResult });
     });
 
     // Fetch enrolled classes for a student
@@ -374,6 +373,22 @@ async function run() {
       } catch (error) {
         console.error(error);
         res.status(500).send({ error: "Failed to retrieve enrolled classes" });
+      }
+    });
+
+    // Route to get payment history for a student
+    app.get("/payment-history/:studentId", async (req, res) => {
+      const studentId = req.params.studentId;
+      try {
+        const payments = await paymentsCollection
+          .find({ studentId })
+          .sort({ date: -1 }) // Sort by date in descending order
+          .toArray();
+        console.log(payments);
+        res.send(payments);
+      } catch (error) {
+        console.error("Error retrieving payment history:", error);
+        res.status(500).json({ error: "Internal server error" });
       }
     });
 
