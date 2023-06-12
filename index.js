@@ -281,8 +281,17 @@ async function run() {
     });
     // get  mu class for instructors
     app.get("/my-class", async (req, res) => {
-      const result = await classesCollection.find().toArray();
-      res.send(result);
+      const userEmail = req.query.email;
+
+      try {
+        const result = await classesCollection
+          .find({ "instructor.email": userEmail })
+          .toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error retrieving classes:", error);
+        res.status(500).send({ error: "Internal server error" });
+      }
     });
 
     // Update A class
@@ -363,6 +372,10 @@ async function run() {
 
         // Increment the totalEnrolledStudents field in the class document
         await enrolledCollection.updateOne(
+          { _id: classDoc._id },
+          { $inc: { totalEnrolledStudents: 1 } }
+        );
+        await classesCollection.updateOne(
           { _id: classDoc._id },
           { $inc: { totalEnrolledStudents: 1 } }
         );
