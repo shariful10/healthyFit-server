@@ -195,9 +195,21 @@ async function run() {
       res.send(result);
     });
     app.get("/all-class", async (req, res) => {
-      const result = await classesCollection.find().toArray();
-      res.send(result);
+      const statusFilter = req.query.status; // Get the status filter from query parameter
+      let filter = {}; // Default filter to retrieve all classes
+
+      if (statusFilter === "approved") {
+        filter = { status: "approved" }; // Set filter to retrieve approved classes only
+      }
+
+      try {
+        const result = await classesCollection.find(filter).toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to retrieve classes" });
+      }
     });
+
     app.get("/update-class/:id", async (req, res) => {
       const result = await classesCollection.findOne({
         _id: new ObjectId(req.params.id),
@@ -293,7 +305,6 @@ async function run() {
     // Update A class
     app.put("/classUpdate/:id", async (req, res) => {
       const classUpdate = req.body;
-
       const filter = { _id: new ObjectId(req.params.id) };
       const options = { upsert: true };
       const updateDoc = {
@@ -351,15 +362,34 @@ async function run() {
     //payment api to save database ,remove classes ,enrolled added
     app.post("/payments", async (req, res) => {
       const paymentInfo = req.body;
-      const insertResult = await paymentsCollection.insertOne(paymentInfo);
+      console.log(paymentInfo);
+      try {
+        const insertResult = await paymentsCollection.insertOne(paymentInfo);
 
-      const query = {
-        _id: new ObjectId(paymentInfo.classId),
-        // _id: { $in: paymentInfo.map((id) => new ObjectId(id)) },
-      };
-      // const removeResult = await classesCollection.deleteOne(query);
-      // // const enrolledResult = await enrolledCollection.insertOne(paymentInfo);
-      res.send({ insertResult });
+        const email = paymentInfo.email;
+        const query = { email: email };
+        const classDoc = await bookedCourseCollection.findOne(query);
+        if (!classDoc) {
+          return res.status(404).json({ error: "Class not found" });
+        }
+        if (classDoc.availableSeats === 0) {
+          return res.status(400).json({ error: "No available seats" });
+        }
+        const updateResult = await enrolledCollection.insertOne(classDoc);
+        await bookedCourseCollection.deleteOne(query);
+
+        // Increment the totalEnrolledStudents field in the class document
+        await enrolledCollection.updateOne(
+          { _id: classDoc._id },
+          { $inc: { totalEnrolledStudents: 1 } }
+        );
+
+        res.send({ insertResult, updateResult });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ error: "Failed to process payment and enroll in class" });
+      }
     });
 
     // Fetch enrolled classes for a student
@@ -377,14 +407,14 @@ async function run() {
     });
 
     // Route to get payment history for a student
-    app.get("/payment-history/:studentId", async (req, res) => {
-      const studentId = req.params.studentId;
+    app.get("/payment-history/:email", async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
       try {
         const payments = await paymentsCollection
-          .find({ studentId })
+          .find({ email: email })
           .sort({ date: -1 }) // Sort by date in descending order
           .toArray();
-        console.log(payments);
         res.send(payments);
       } catch (error) {
         console.error("Error retrieving payment history:", error);
@@ -392,57 +422,44 @@ async function run() {
       }
     });
 
-    // // Get popular classes based on the number of students
-    // app.get("/popular-classes", async (req, res) => {
-    //   try {
-    //     const popularClasses = await paymentsCollection
-    //       .aggregate([
-    //         { $group: { _id: "$classId", count: { $sum: 1 } } },
-    //         { $sort: { count: -1 } },
-    //         { $limit: 6 },
-    //       ])
-    //       .toArray();
+    // Route to get popular classes based on the number of students
+    app.get("/popular-classes", async (req, res) => {
+      try {
+        const popularClasses = await enrolledCollection
+          .find()
+          .sort({ totalEnrolledStudents: -1 })
+          .limit(6)
+          .toArray();
 
-    //     const classIds = popularClasses.map((classItem) => classItem._id);
+        res.send(popularClasses);
+      } catch (error) {
+        console.error("Error retrieving popular classes:", error);
+        res.status(500).send({ error: "Internal server error" });
+      }
+    });
 
-    //     const classes = await bookedCourseCollection
-    //       .find({ _id: { $in: classIds } })
-    //       .toArray();
+    // Route to get popular instructors based on the number of students in their class
+    app.get("/popular-instructors", async (req, res) => {
+      try {
+        const popularInstructors = await classesCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$instructorEmail",
+                totalStudents: { $sum: "$totalEnrolledStudents" },
+              },
+            },
+            { $sort: { totalStudents: -1 } },
+            { $limit: 6 },
+          ])
+          .toArray();
 
-    //     res.send(classes);
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ error: "Failed to retrieve popular classes" });
-    //   }
-    // });
-
-    // // Get popular instructors based on the number of students
-    // app.get("/popular-instructors", async (req, res) => {
-    //   try {
-    //     const popularInstructors = await paymentsCollection
-    //       .aggregate([
-    //         { $group: { _id: "$transactionId", count: { $sum: 1 } } },
-    //         { $sort: { count: -1 } },
-    //         { $limit: 6 },
-    //       ])
-    //       .toArray();
-
-    //     const instructorIds = popularInstructors.map(
-    //       (instructorItem) => instructorItem._id
-    //     );
-
-    //     const instructors = await bookedCourseCollection
-    //       .find({ _id: new ObjectId(instructorIds) })
-    //       .toArray();
-
-    //     res.send(instructors);
-    //   } catch (error) {
-    //     console.error(error);
-    //     res
-    //       .status(500)
-    //       .send({ error: "Failed to retrieve popular instructors" });
-    //   }
-    // });
+        res.send(popularInstructors);
+      } catch (error) {
+        console.error("Error retrieving popular instructors:", error);
+        res.status(500).send({ error: "Internal server error" });
+      }
+    });
 
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
